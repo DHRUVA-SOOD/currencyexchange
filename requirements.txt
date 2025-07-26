@@ -3,3 +3,4 @@ prophet
 yfinance
 gspread
 google-auth-oauthlib
+plotly
