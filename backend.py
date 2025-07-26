@@ -89,7 +89,7 @@ def save_feedback_to_gsheet(email, review):
         gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
         
         # Open the spreadsheet and the specific worksheet
-        spreadsheet = gc.open("Name of Your Google Sheet") # <--- CHANGE THIS to your sheet's name
+        spreadsheet = gc.open("feedback") # <--- CHANGE THIS to your sheet's name
         worksheet = spreadsheet.worksheet("feedback")
 
         # Create the new row
