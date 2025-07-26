@@ -5,7 +5,9 @@ from datetime import datetime
 import streamlit as st
 import smtplib
 from email.mime.text import MIMEText
+import gspread
 
+# --- Prediction and Email Functions ---
 
 def get_prediction(ticker, travel_date):
     """
@@ -32,7 +34,6 @@ def get_prediction(ticker, travel_date):
         model = Prophet()
         model.fit(df_prophet)
 
-        # Corrected this line to remove the redundant .date()
         days_to_forecast = (travel_date - datetime.now().date()).days
         future = model.make_future_dataframe(periods=days_to_forecast)
         forecast = model.predict(future)
@@ -46,10 +47,7 @@ def get_prediction(ticker, travel_date):
         if future_forecast.empty:
             return None, "Could not generate a forecast for the selected period.", None
 
-        # Find the 3 days with the HIGHEST predicted rate
         best_days = future_forecast.sort_values(by='yhat', ascending=False).head(3)
-        
-        # Return the results and the full forecast for plotting
         return best_days, forecast, model
 
     except Exception as e:
@@ -60,30 +58,47 @@ def send_email_reminder(recipient_email, best_days_df):
     Sends an email reminder with the prediction results.
     """
     try:
-        # Get credentials from Streamlit secrets
         sender_email = st.secrets["SENDER_EMAIL"]
         sender_password = st.secrets["SENDER_PASSWORD"]
 
-        # Format the message
         subject = "Your Currency Exchange Reminder"
         body = "Hello,\n\nHere are the top 3 predicted days to exchange your currency:\n\n"
-        for index, row in best_days_df.iterrows():
+        for _, row in best_days_df.iterrows():
             date_str = row['ds'].strftime('%A, %Y-%m-%d')
             rate_str = f"{row['yhat']:.4f}"
             body += f"- {date_str} (Predicted Rate: {rate_str})\n"
         body += "\nDisclaimer: This is an automated statistical forecast, not financial advice."
 
-        # Create the email
         msg = MIMEText(body)
-        msg['Subject'] = subject
-        msg['From'] = sender_email
-        msg['To'] = recipient_email
-
-        # Connect to Gmail's SMTP server and send
+        msg['Subject'], msg['From'], msg['To'] = subject, sender_email, recipient_email
         with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
             server.login(sender_email, sender_password)
             server.send_message(msg)
         return True
     except Exception as e:
         print(f"Email failed to send: {e}")
+        return False
+
+# --- NEW: Function to save feedback to Google Sheets ---
+def save_feedback_to_gsheet(email, review):
+    """
+    Saves user feedback to a Google Sheet.
+    """
+    try:
+        # Authenticate with Google Sheets using Streamlit Secrets
+        gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
+        
+        # Open the spreadsheet and the specific worksheet
+        spreadsheet = gc.open("Name of Your Google Sheet") # <--- CHANGE THIS to your sheet's name
+        worksheet = spreadsheet.worksheet("feedback")
+
+        # Create the new row
+        new_row = [datetime.now().strftime("%Y-%m-%d %H:%M:%S"), email, review]
+        
+        # Append the new row to the worksheet
+        worksheet.append_row(new_row)
+        
+        return True
+    except Exception as e:
+        st.error(f"Failed to save feedback: {e}")
         return False
