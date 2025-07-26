@@ -7,6 +7,7 @@ import base64
 import os
 import smtplib
 from email.mime.text import MIMEText
+import gspread # <-- ADDED THIS IMPORT
 
 # --- Helper Functions ---
 
@@ -83,10 +84,7 @@ def send_email_reminder(recipient_email, best_days_df):
         body += "\nDisclaimer: This is an automated statistical forecast, not financial advice."
 
         msg = MIMEText(body)
-        msg['Subject'] = subject
-        msg['From'] = sender_email
-        msg['To'] = recipient_email
-
+        msg['Subject'], msg['From'], msg['To'] = subject, sender_email, recipient_email
         with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
             server.login(sender_email, sender_password)
             server.send_message(msg)
@@ -95,9 +93,23 @@ def send_email_reminder(recipient_email, best_days_df):
         st.error(f"Email failed to send: {e}")
         return False
 
+# --- NEW FUNCTION: To save feedback to Google Sheets ---
+def save_feedback_to_gsheet(email, review):
+    """Saves user feedback to a Google Sheet."""
+    try:
+        gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
+        spreadsheet = gc.open("Name of Your Google Sheet") # <--- CHANGE THIS
+        worksheet = spreadsheet.worksheet("feedback")
+        new_row = [datetime.now().strftime("%Y-%m-%d %H:%M:%S"), email, review]
+        worksheet.append_row(new_row)
+        return True
+    except Exception as e:
+        st.error(f"Failed to save feedback: {e}")
+        return False
+
 # --- Main App ---
 st.set_page_config(page_title="Currency Forecaster", page_icon="💰", layout="centered")
-set_bg_from_local("background.png")
+set_bg_from_local("background.png") # Make sure you have your image file
 
 st.title("💱 Currency Exchange Forecaster")
 st.write("Predict the best days to exchange currency before your travel date.")
@@ -138,24 +150,18 @@ if submitted:
                                 with st.spinner("Sending email..."):
                                     if send_email_reminder(email_address, best_days):
                                         st.success(f"Reminder sent to {email_address}!")
-                                    else:
-                                        st.error("Failed to send email. Ensure secrets are configured correctly.")
                             else:
                                 st.warning("Please enter your email address.")
 
                 st.markdown("### 📊 Forecast Trend")
                 fig = model.plot(forecast_data)
-                ax = fig.gca()
-                ax.set_title(f'Forecast for {pair}')
-                ax.set_xlabel("Date")
-                ax.set_ylabel("Exchange Rate")
                 st.pyplot(fig)
             else:
                 st.error(f"Prediction failed. Reason: {forecast_data}")
         
         st.warning("⚠️ **Disclaimer:** This is a statistical forecast, not financial advice.", icon="❗")
 
-# --- NEW: Feedback Section ---
+# --- EDITED: Feedback Section ---
 st.write("---") 
 with st.expander("📝 Leave a Review"):
     with st.form("feedback_form", clear_on_submit=True):
@@ -164,21 +170,11 @@ with st.expander("📝 Leave a Review"):
         feedback_submitted = st.form_submit_button("Submit Review")
 
         if feedback_submitted:
-            if user_review: # Ensure review is not empty
-                # Create a dataframe from the new feedback
-                feedback_df = pd.DataFrame({
-                    "email": [user_email],
-                    "review": [user_review],
-                    "timestamp": [datetime.now()]
-                })
-
-                # Append to a CSV file without writing the header every time
-                try:
-                    # Check if the file exists to decide on writing the header
-                    file_exists = os.path.exists("feedback.csv")
-                    feedback_df.to_csv("feedback.csv", mode='a', header=not file_exists, index=False)
-                    st.success("Thank you for your feedback!")
-                except Exception as e:
-                    st.error(f"Failed to save feedback: {e}")
+            if user_review:
+                with st.spinner("Submitting..."):
+                    if save_feedback_to_gsheet(user_email, user_review):
+                        st.success("Thank you for your feedback!")
+                    else:
+                        st.error("Could not save feedback. Please check your configuration.")
             else:
                 st.warning("Please write a review before submitting.")
